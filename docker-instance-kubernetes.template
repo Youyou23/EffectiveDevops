@@ -1,0 +1,98 @@
+{
+    "Description": "Effective DevOps in AWS: HelloWorld web application",
+    "Outputs": {
+        "InstancePublicIp": {
+            "Description": "Public IP of our instance.",
+            "Value": {
+                "Fn::GetAtt": [
+                    "instance",
+                    "PublicIp"
+                ]
+            }
+        },
+        "WebUrl": {
+            "Description": "Application endpoint",
+            "Value": {
+                "Fn::Join": [
+                    "",
+                    [
+                        "http://",
+                        {
+                            "Fn::GetAtt": [
+                                "instance",
+                                "PublicDnsName"
+                            ]
+                        },
+                        ":",
+                        "3000"
+                    ]
+                ]
+            }
+        }
+    },
+    "Parameters": {
+        "KeyPair": {
+            "ConstraintDescription": "must be the name of an existing EC2 KeyPair.",
+            "Description": "Name of an existing EC2 KeyPair to SSH",
+            "Type": "AWS::EC2::KeyPair::KeyName"
+        }
+    },
+    "Resources": {
+        "SecurityGroup": {
+            "Properties": {
+                "GroupDescription": "Allow SSH and TCP/3000 access",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "105.66.4.194/32",
+                        "FromPort": "22",
+                        "IpProtocol": "tcp",
+                        "ToPort": "22"
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": "3000",
+                        "IpProtocol": "tcp",
+                        "ToPort": "3000"
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::SecurityGroup"
+        },
+        "instance": {
+            "Properties": {
+                "ImageId": "ami-cfe4b2b0",
+                "InstanceType": "t2.medium",
+                "KeyName": {
+                    "Ref": "KeyPair"
+                },
+                "SecurityGroups": [
+                    {
+                        "Ref": "SecurityGroup"
+                    }
+                ],
+                "UserData": {
+                    "Fn::Base64": {
+                        "Fn::Join": [
+                            "\n",
+                            [
+                                "#!/bin/bash",
+                                "sudo yum update -y",
+                                "sudo yum install docker",
+                                "sudo service docker start",
+                                "sudo usermod -a -G docker ec2-user",
+                                "curl -Lo minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64",
+                                "chmod +x minikube",
+                                "sudo mv minikube /usr/local/bin",
+                                "minikube start",
+                                "curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.13.0/bin/linux/amd64/kubectl",
+                                "chmod +x kubectl",
+                                "sudo mv kubectl /usr/local/bin"
+                            ]
+                        ]
+                    }
+                }
+            },
+            "Type": "AWS::EC2::Instance"
+        }
+    }
+}

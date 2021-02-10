@@ -1,7 +1,8 @@
 """Generating CloudFormation template."""
-
 from ipaddress import ip_network
+
 from ipify import get_ip
+
 from troposphere import (
     Base64,
     ec2,
@@ -9,14 +10,43 @@ from troposphere import (
     Join,
     Output,
     Parameter,
-    Ref, 
+    Ref,
     Template,
-)  
-ApplicationPort = "3000"  
-"""get and parese the local ip to be authorized in ssh 22"""
-PublicIpCidr = str(ip_network(get_ip())) 
+)
+
+from troposphere.iam import (
+    InstanceProfile,
+    PolicyType as IAMPolicy,
+    Role,
+)
+
+from awacs.aws import (
+    Action,
+    Allow,
+    Policy,
+    Principal,
+    Statement,
+)
+
+from awacs.sts import AssumeRole
+
+ApplicationName = "jenkins"
+ApplicationPort = "8080"
+GithubAccount = "Youyou23"
+GithubAnsibleURL = "https://github.com/{}/ansible-test".format(GithubAccount)
+
+PublicCidrIp = str(ip_network(get_ip()))
+
+AnsiblePullCmd = \
+"/usr/bin/ansible-pull -U {} {}.yml -i localhost".format( GithubAnsibleURL,
+ApplicationName
+)
+
+
 t = Template()
+
 t.add_description("Effective DevOps in AWS: HelloWorld web application")
+
 t.add_parameter(Parameter(
     "KeyPair",
     Description="Name of an existing EC2 KeyPair to SSH",
@@ -32,7 +62,7 @@ t.add_resource(ec2.SecurityGroup(
             IpProtocol="tcp",
             FromPort="22",
             ToPort="22",
-            CidrIp=PublicIpCidr,
+            CidrIp=PublicCidrIp,
         ),
         ec2.SecurityGroupRule(
             IpProtocol="tcp",
@@ -43,29 +73,41 @@ t.add_resource(ec2.SecurityGroup(
     ],
 ))
 
-ud = Base64(Join('\n', [
-    "#!/bin/bash",
-    "sudo yum update -y",
-    "sudo yum install docker",
-    "sudo service docker start",
-    "sudo usermod -a -G docker ec2-user",
-    "curl -Lo minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64",
-    "chmod +x minikube",
-    "sudo mv minikube /usr/local/bin",
-    "minikube start",
-    "curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.13.0/bin/linux/amd64/kubectl",
-    "chmod +x kubectl",
-    "sudo mv kubectl /usr/local/bin"
+ud = Base64(Join('\n', [ "#!/bin/bash",
+"yum install --enablerepo=epel -y git", 
+"yum install --enablerepo=epel -y ansible",
+AnsiblePullCmd,
+"echo '*/10 * * * * {}' > /etc/cron.d/ansible-pull".format(AnsiblePullCmd)
 ]))
+
+t.add_resource(Role(
+    "Role",
+    AssumeRolePolicyDocument=Policy(
+        Statement=[
+            Statement(
+                Effect=Allow,
+                Action=[AssumeRole],
+                Principal=Principal("Service", ["ec2.amazonaws.com"])
+            )
+        ]
+    )
+))
+
+t.add_resource(InstanceProfile(
+    "InstanceProfile",
+    Path="/",
+    Roles=[Ref("Role")]
+))
 
 t.add_resource(ec2.Instance(
     "instance",
     ImageId="ami-cfe4b2b0",
-    InstanceType="t2.medium",
+    InstanceType="t2.micro",
     SecurityGroups=[Ref("SecurityGroup")],
     KeyName=Ref("KeyPair"),
     UserData=ud,
-)) 
+    IamInstanceProfile=Ref("InstanceProfile"),
+))
 
 t.add_output(Output(
     "InstancePublicIp",
@@ -80,8 +122,6 @@ t.add_output(Output(
         "http://", GetAtt("instance", "PublicDnsName"),
         ":", ApplicationPort
     ]),
-)) 
+))
 
-print t.to_json() 
-
-
+print t.to_json()
